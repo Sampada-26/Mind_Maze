@@ -290,20 +290,11 @@ class AudioManager:
     def __init__(self):
         self.enabled = False
         self.muted = False
-        self.current_music_key = None
-        self.current_music_source = None  # "file" or "fallback"
-
         self.music_master = 1.0
         self.sfx_master = 1.0
+        self.bg_music_path = BASE_DIR / "song.mp3"
 
-        self.music_tracks = {
-            "home": {"path": MUSIC_DIR / "home.mp3", "volume": 0.45, "loops": -1},
-            "gameplay": {"path": MUSIC_DIR / "gameplay.mp3", "volume": 0.36, "loops": -1},
-            "win": {"path": MUSIC_DIR / "win.mp3", "volume": 0.48, "loops": 0},
-            "gameover": {"path": MUSIC_DIR / "gameover.mp3", "volume": 0.40, "loops": -1},
-        }
-
-        self.fallback_music = {}
+        self.fallback_music = None
         self.sfx = {}
         self.sfx_volumes = {
             "click": 0.82,
@@ -326,13 +317,8 @@ class AudioManager:
             pygame.mixer.set_reserved(1)
             self.music_fallback_channel = pygame.mixer.Channel(0)
 
-            # Music fallback loops when files are missing.
-            self.fallback_music = {
-                "home": create_tone(freq=120, duration=1.8, volume=0.12, wave="sine"),
-                "gameplay": create_tone(freq=92, duration=1.8, volume=0.11, wave="sine"),
-                "win": create_tone(freq=980, duration=0.22, volume=0.20, wave="sine"),
-                "gameover": create_tone(freq=130, duration=0.60, volume=0.16, wave="square"),
-            }
+            # Fallback background music tone
+            self.fallback_music = create_tone(freq=92, duration=1.8, volume=0.11, wave="sine")
 
             self.sfx["click"] = self._load_sound(
                 SOUNDS_DIR / "click.wav",
@@ -382,11 +368,10 @@ class AudioManager:
                     continue
         return fallback_sound
 
-    def _music_volume_for(self, key):
+    def _music_volume_for(self):
         if self.muted:
             return 0.0
-        base = self.music_tracks.get(key, {}).get("volume", 0.40)
-        return clamp(base * self.music_master, 0.0, 1.0)
+        return clamp(0.40 * self.music_master, 0.0, 1.0)
 
     def _sfx_volume_for(self, key):
         if self.muted:
@@ -394,54 +379,25 @@ class AudioManager:
         base = self.sfx_volumes.get(key, 0.85)
         return clamp(base * self.sfx_master, 0.0, 1.0)
 
-    def _stop_current_music(self, fade_ms):
-        if self.current_music_source == "file" and pygame.mixer.music.get_busy():
-            if fade_ms > 0:
-                pygame.mixer.music.fadeout(fade_ms)
-            else:
-                pygame.mixer.music.stop()
-        elif self.current_music_source == "fallback" and self.music_fallback_channel:
-            if self.music_fallback_channel.get_busy():
-                if fade_ms > 0:
-                    self.music_fallback_channel.fadeout(fade_ms)
-                else:
-                    self.music_fallback_channel.stop()
-
-    def play_music(self, key, fade_ms=700, immediate=False):
-        if not self.enabled or key not in self.music_tracks:
+    def play_background_music(self):
+        """Load and play background.mp3 on infinite loop."""
+        if not self.enabled:
             return
 
-        if self.current_music_key == key:
-            # Keep volume in sync when toggling mute/volume.
-            self.apply_music_volume()
-            return
-
-        fade = 0 if immediate else fade_ms
-        self._stop_current_music(fade)
-
-        cfg = self.music_tracks[key]
-        path = cfg["path"]
-        played = False
-
-        if path.exists():
+        # Try to load background.mp3 file
+        if self.bg_music_path.exists():
             try:
-                pygame.mixer.music.load(str(path))
-                pygame.mixer.music.set_volume(self._music_volume_for(key))
-                pygame.mixer.music.play(loops=cfg["loops"], fade_ms=fade)
-                self.current_music_source = "file"
-                played = True
+                pygame.mixer.music.load(str(self.bg_music_path))
+                pygame.mixer.music.set_volume(self._music_volume_for())
+                pygame.mixer.music.play(loops=-1)  # Infinite loop
+                return
             except pygame.error:
-                played = False
+                pass
 
-        if not played:
-            fallback = self.fallback_music.get(key)
-            if fallback and self.music_fallback_channel:
-                self.music_fallback_channel.set_volume(self._music_volume_for(key))
-                self.music_fallback_channel.play(fallback, loops=cfg["loops"], fade_ms=fade)
-                self.current_music_source = "fallback"
-                played = True
-
-        self.current_music_key = key if played else None
+        # Fallback to synthesized tone if file missing
+        if self.fallback_music and self.music_fallback_channel:
+            self.music_fallback_channel.set_volume(self._music_volume_for())
+            self.music_fallback_channel.play(self.fallback_music, loops=-1)
 
     def play_sfx(self, key, volume_scale=1.0):
         if not self.enabled:
@@ -453,12 +409,12 @@ class AudioManager:
         sound.play()
 
     def apply_music_volume(self):
-        if not self.enabled or not self.current_music_key:
+        if not self.enabled:
             return
-        vol = self._music_volume_for(self.current_music_key)
-        if self.current_music_source == "file":
+        vol = self._music_volume_for()
+        if pygame.mixer.music.get_busy():
             pygame.mixer.music.set_volume(vol)
-        elif self.current_music_source == "fallback" and self.music_fallback_channel:
+        elif self.music_fallback_channel and self.music_fallback_channel.get_busy():
             self.music_fallback_channel.set_volume(vol)
 
     def toggle_mute(self):
@@ -498,6 +454,17 @@ class MindMazeGame:
         self.ui_font = pick_font(["orbitron", "rajdhani", "audiowide", "consolas"], 28, bold=True)
         self.small_font = pick_font(["orbitron", "rajdhani", "consolas"], 21, bold=False)
         self.tiny_font = pick_font(["orbitron", "rajdhani", "consolas"], 18, bold=False)
+
+        # Main menu logo
+        self.logo_image = None
+        try:
+            import os
+            logo_path = os.path.join(os.path.dirname(__file__), "logo.png")
+            if os.path.isfile(logo_path):
+                logo = pygame.image.load(logo_path).convert_alpha()
+                self.logo_image = pygame.transform.smoothscale(logo, (176, 176))
+        except Exception:
+            self.logo_image = None
 
         self.state = STATE_START
         self.state_age = 0.0
@@ -560,7 +527,7 @@ class MindMazeGame:
         self.round_resolved = False
 
         self.reset_level_data(new_level=True)
-        self.sync_music_for_state(immediate=True)
+        self.audio.play_background_music()
 
     # -----------------------------
     # Setup / reset
@@ -573,15 +540,8 @@ class MindMazeGame:
         self.audio_status_timer = 2.0
 
     def sync_music_for_state(self, state=None, immediate=False):
-        game_state = state if state is not None else self.state
-        if game_state == STATE_START:
-            self.audio.play_music("home", immediate=immediate)
-        elif game_state in (STATE_PREVIEW, STATE_PLAYING):
-            self.audio.play_music("gameplay", immediate=immediate)
-        elif game_state == STATE_LEVEL_COMPLETE:
-            self.audio.play_music("win", immediate=immediate)
-        elif game_state == STATE_GAME_OVER:
-            self.audio.play_music("gameover", immediate=immediate)
+        """Kept for compatibility; background music plays continuously throughout game."""
+        pass
 
     def start_new_run(self):
         self.level = 1
@@ -671,7 +631,6 @@ class MindMazeGame:
     def set_state(self, new_state):
         self.state = new_state
         self.state_age = 0.0
-        self.sync_music_for_state(new_state)
 
     def transition_to(self, new_state):
         if self.pending_state == new_state:
@@ -1333,11 +1292,21 @@ class MindMazeGame:
         pulse = 0.52 + 0.48 * math.sin(self.global_time * 2.2)
         float_y = int(math.sin(self.global_time * 1.7) * 6)
 
+        # Draw main menu logo above the title when available
+        if self.logo_image:
+            logo_rect = self.logo_image.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 258 + float_y))
+            surface.blit(self.logo_image, logo_rect)
+            title_y = HEIGHT // 2 - 102 + float_y
+            subtitle_y = HEIGHT // 2 - 42 + float_y
+        else:
+            title_y = HEIGHT // 2 - 170 + float_y
+            subtitle_y = HEIGHT // 2 - 100 + float_y
+
         draw_glow_text(
             surface,
             "MIND MAZE",
             self.title_font,
-            (WIDTH // 2, HEIGHT // 2 - 170 + float_y),
+            (WIDTH // 2, title_y),
             TEXT_COLOR,
             NEON_CYAN,
             center=True,
@@ -1348,7 +1317,7 @@ class MindMazeGame:
             surface,
             "MEMORIZE. ADAPT. ESCAPE.",
             self.small_font,
-            (WIDTH // 2, HEIGHT // 2 - 100 + float_y),
+            (WIDTH // 2, subtitle_y),
             (210, 226, 246),
             NEON_MAGENTA,
             center=True,
