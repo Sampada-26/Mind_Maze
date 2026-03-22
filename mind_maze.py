@@ -309,6 +309,10 @@ class MindMazeGame:
         except Exception:
             self.logo_image = None
 
+        # Optional background song (file: song.mp3)
+        self.bg_music_path = os.path.join(os.path.dirname(__file__), "song.mp3")
+        self.init_music()
+
         self.state = STATE_START
         self.state_age = 0.0
 
@@ -389,6 +393,15 @@ class MindMazeGame:
             self.snd_ambient.play(loops=-1)
         except pygame.error:
             self.snd_move = self.snd_hit = self.snd_win = self.snd_ui = self.snd_ambient = None
+
+    def init_music(self):
+        try:
+            if os.path.isfile(self.bg_music_path):
+                pygame.mixer.music.load(self.bg_music_path)
+                pygame.mixer.music.set_volume(0.32)
+                pygame.mixer.music.play(loops=-1)
+        except pygame.error:
+            pass
 
     def play_sound(self, snd, volume=1.0):
         if snd:
