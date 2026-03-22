@@ -1,4 +1,5 @@
 import math
+import os
 import random
 import sys
 from array import array
@@ -9,7 +10,7 @@ import pygame
 # -----------------------------
 # Config
 # -----------------------------
-WIDTH, HEIGHT = 1120, 780
+WIDTH, HEIGHT = 1180, 780
 FPS = 60
 TOP_BAR_H = 84
 BOTTOM_BAR_H = 96
@@ -297,6 +298,16 @@ class MindMazeGame:
         self.ui_font = pick_font(["orbitron", "rajdhani", "audiowide", "consolas"], 28, bold=True)
         self.small_font = pick_font(["orbitron", "rajdhani", "consolas"], 21, bold=False)
         self.tiny_font = pick_font(["orbitron", "rajdhani", "consolas"], 18, bold=False)
+
+        # Main menu logo
+        self.logo_image = None
+        try:
+            logo_path = os.path.join(os.path.dirname(__file__), "logo.png")
+            if os.path.isfile(logo_path):
+                logo = pygame.image.load(logo_path).convert_alpha()
+                self.logo_image = pygame.transform.smoothscale(logo, (176, 176))
+        except Exception:
+            self.logo_image = None
 
         self.state = STATE_START
         self.state_age = 0.0
@@ -1087,11 +1098,21 @@ class MindMazeGame:
         pulse = 0.52 + 0.48 * math.sin(self.global_time * 2.2)
         float_y = int(math.sin(self.global_time * 1.7) * 6)
 
+        # Draw main menu logo above the title when available
+        if self.logo_image:
+            logo_rect = self.logo_image.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 258 + float_y))
+            surface.blit(self.logo_image, logo_rect)
+            title_y = HEIGHT // 2 - 102 + float_y
+            subtitle_y = HEIGHT // 2 - 42 + float_y
+        else:
+            title_y = HEIGHT // 2 - 170 + float_y
+            subtitle_y = HEIGHT // 2 - 100 + float_y
+
         draw_glow_text(
             surface,
             "MIND MAZE",
             self.title_font,
-            (WIDTH // 2, HEIGHT // 2 - 170 + float_y),
+            (WIDTH // 2, title_y),
             TEXT_COLOR,
             NEON_CYAN,
             center=True,
@@ -1102,7 +1123,7 @@ class MindMazeGame:
             surface,
             "MEMORIZE. ADAPT. ESCAPE.",
             self.small_font,
-            (WIDTH // 2, HEIGHT // 2 - 100 + float_y),
+            (WIDTH // 2, subtitle_y),
             (210, 226, 246),
             NEON_MAGENTA,
             center=True,
